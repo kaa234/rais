@@ -158,7 +158,7 @@ local Workspace         = game:GetService("Workspace")
 local Camera            = workspace.CurrentCamera
 local localPlayer       = Players.LocalPlayer
 
-Camera.FieldOfView = 90
+Camera.FieldOfView = 70
 
 local AIM_KEY           = Enum.KeyCode.V
 local DISABLE_KEY       = Enum.KeyCode.Equals
