@@ -1,155 +1,186 @@
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = workspace
-local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
+pcall(function()
+	local Players = game:GetService("Players")
+	local UserInputService = game:GetService("UserInputService")
+	local RunService = game:GetService("RunService")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local Workspace = workspace
+	local LocalPlayer = Players.LocalPlayer
+	local Camera = Workspace.CurrentCamera
 
-local on = false
-local canGrab = true
-local maxDistance = 20
-local preGrabDelay = 0
-local postGrabDelay = 0.0
-local scriptEnabled = true
-local indicatorShown = true
-local indicator, screenGui
-local lastTarget, lastHitTime = nil, 0
-local targetMemoryDuration = 0.25
-local checkThrottle = 0
+	local on = false
+	local canGrab = true
+	local maxDistance = 20
+	local preGrabDelay = 0
+	local postGrabDelay = 0.0
+	local scriptEnabled = true
+	local indicatorShown = true
+	local indicator, screenGui
+	local lastTarget, lastHitTime = nil, 0
+	local targetMemoryDuration = 0.25
+	local checkThrottle = 0
 
-local rayParams = RaycastParams.new()
-rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-task.spawn(pcall, function()
-	if ReplicatedStorage.GamepassEvents.CheckForGamepass:InvokeServer(20837132) then
-		maxDistance = 29.3
+	task.spawn(function()
+		pcall(function()
+			if ReplicatedStorage.GamepassEvents.CheckForGamepass:InvokeServer(20837132) then
+				maxDistance = 29.3
+			end
+		end)
+	end)
+
+	local function makeIndicator()
+		local sg, lb
+		pcall(function()
+			sg = Instance.new("ScreenGui")
+			sg.Name = "Container_" .. math.random(100000, 999999)
+			sg.ResetOnSpawn = false
+			sg.Enabled = indicatorShown
+			sg.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+			lb = Instance.new("TextLabel")
+			lb.Size = UDim2.new(0, 200, 0, 50)
+			lb.Position = UDim2.new(0.5, -100, 0, 20)
+			lb.BackgroundTransparency = 0.3
+			lb.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+			lb.TextColor3 = Color3.new(1, 0, 0)
+			lb.TextScaled = true
+			lb.Font = Enum.Font.SourceSansBold
+			lb.Text = "триггер врублен"
+			lb.Visible = false
+			lb.Parent = sg
+		end)
+		screenGui = sg
+		return lb
 	end
-end)
 
-local function makeIndicator()
-	screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "индикатор"
-	screenGui.ResetOnSpawn = false
-	screenGui.Enabled = indicatorShown
-	screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+	indicator = makeIndicator()
 
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(0,200,0,50)
-	label.Position = UDim2.new(0.5,-100,0,20)
-	label.BackgroundTransparency = 0.3
-	label.BackgroundColor3 = Color3.fromRGB(0,0,0)
-	label.TextColor3 = Color3.new(1,0,0)
-	label.TextScaled = true
-	label.Font = Enum.Font.SourceSansBold
-	label.Text = "триггер врублен"
-	label.Visible = false
-	label.Parent = screenGui
-	return label
-end
+	pcall(function()
+		ReplicatedStorage.GamepassEvents.FurtherReachBoughtNotifier.OnClientEvent:Connect(function()
+			pcall(function()
+				maxDistance = 29.3
+			end)
+		end)
+	end)
 
-indicator = makeIndicator()
+	local function getTarget()
+		local success, result = pcall(function()
+			local c = LocalPlayer.Character
+			if not c or not c:FindFirstChild("HumanoidRootPart") then return nil end
+			if Workspace:FindFirstChild("GrabParts") then return nil end
+			local origin, dir = Camera.CFrame.Position, Camera.CFrame.LookVector
+			rayParams.FilterDescendantsInstances = { c, Workspace.Terrain }
 
-ReplicatedStorage.GamepassEvents.FurtherReachBoughtNotifier.OnClientEvent:Connect(function()
-	maxDistance = 29.3
-end)
+			local hit = Workspace:Raycast(origin, dir * 1000, rayParams)
+			if not hit then
+				local dirs = {
+					dir,
+					(dir + Vector3.new(0, 0.075, 0)).Unit,
+					(dir - Vector3.new(0, 0.075, 0)).Unit,
+				}
+				for _, d in ipairs(dirs) do
+					hit = Workspace:Raycast(origin, d * 1000, rayParams)
+					if hit then break end
+				end
+			end
+			if not hit then return nil end
 
-local function getTarget()
-	local c = LocalPlayer.Character
-	if not c or not c:FindFirstChild("HumanoidRootPart") then return end
-	if Workspace:FindFirstChild("GrabParts") then return end
-	local origin, dir = Camera.CFrame.Position, Camera.CFrame.LookVector
-	rayParams.FilterDescendantsInstances = {c, Workspace.Terrain}
-	local result = Workspace:Raycast(origin, dir * 1000, rayParams)
-	if not result then
-		local dirs = {
-			dir,
-			(dir + Vector3.new(0, 0.075, 0)).Unit,
-			(dir - Vector3.new(0, 0.075, 0)).Unit
-		}
-		for _, d in ipairs(dirs) do
-			result = Workspace:Raycast(origin, d * 1000, rayParams)
-			if result then break end
-		end
+			local inst = hit.Instance
+			local model = inst:FindFirstAncestorOfClass("Model")
+			if not model or not model:FindFirstChildOfClass("Humanoid") or model == c then return nil end
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			if hum.Health <= 0 then return nil end
+			local root = model:FindFirstChild("HumanoidRootPart")
+			if not root then return nil end
+			local dist = (c.HumanoidRootPart.Position - root.Position).Magnitude
+			if dist > maxDistance then return nil end
+			return model
+		end)
+		if success then return result end
+		return nil
 	end
-	if not result then return end
-	local hit = result.Instance
-	local model = hit:FindFirstAncestorOfClass("Model")
-	if not model or not model:FindFirstChildOfClass("Humanoid") or model == c then return end
-	local hum = model:FindFirstChildOfClass("Humanoid")
-	if hum.Health <= 0 then return end
-	local root = model:FindFirstChild("HumanoidRootPart")
-	if not root then return end
-	local dist = (c.HumanoidRootPart.Position - root.Position).Magnitude
-	if dist > maxDistance then return end
-	return model
-end
 
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	if input.KeyCode == Enum.KeyCode.Equals then
-		on = false
-		scriptEnabled = false
-		if indicator then
-			indicator.Visible = true
-			indicator.Text = "скрипт убит"
-			task.delay(1, function()
-				if screenGui then
-					screenGui.Enabled = false
+	pcall(function()
+		UserInputService.InputBegan:Connect(function(input, processed)
+			pcall(function()
+				if processed then return end
+				if input.KeyCode == Enum.KeyCode.Equals then
+					on = false
+					scriptEnabled = false
+					if indicator then
+						indicator.Visible = true
+						indicator.Text = "скрипт убит"
+						task.delay(1, function()
+							pcall(function()
+								if screenGui then screenGui.Enabled = false end
+							end)
+						end)
+					end
+				end
+				if not scriptEnabled then return end
+				if input.KeyCode == Enum.KeyCode.G then
+					on = not on
+					if indicatorShown then
+						indicator.Visible = true
+						indicator.Text = on and "триггер врублен" or "триггер оффнут"
+						task.delay(0.6, function()
+							pcall(function()
+								if indicator then indicator.Visible = false end
+							end)
+						end)
+					end
+				end
+				if input.KeyCode == Enum.KeyCode.LeftBracket then
+					indicatorShown = not indicatorShown
+					if screenGui then screenGui.Enabled = indicatorShown end
 				end
 			end)
-		end
-	end
-	if not scriptEnabled then return end
-	if input.KeyCode == Enum.KeyCode.G then
-		on = not on
-		if indicatorShown then
-			indicator.Visible = true
-			indicator.Text = on and "триггер врублен" or "триггер оффнут"
-			task.delay(0.6, function()
-				if indicator then indicator.Visible = false end
-			end)
-		end
-	end
-	if input.KeyCode == Enum.KeyCode.LeftBracket then
-		indicatorShown = not indicatorShown
-		if screenGui then screenGui.Enabled = indicatorShown end
-	end
-end)
-
-local lastCheck = 0
-RunService.Heartbeat:Connect(function()
-	if not on or not canGrab or not scriptEnabled then return end
-	if UserInputService:GetFocusedTextBox() then return end
-	if tick() - lastCheck < checkThrottle then return end
-	lastCheck = tick()
-	local t = getTarget()
-	if t then
-		lastTarget = t
-		lastHitTime = tick()
-	elseif lastTarget and tick() - lastHitTime > targetMemoryDuration then
-		lastTarget = nil
-	end
-	local c = LocalPlayer.Character
-	local root = lastTarget and lastTarget:FindFirstChild("HumanoidRootPart")
-	if not (lastTarget and c and c:FindFirstChild("HumanoidRootPart") and root) then return end
-	if (c.HumanoidRootPart.Position - root.Position).Magnitude > maxDistance then
-		lastTarget = nil
-		return
-	end
-	if lastTarget then
-		canGrab = false
-		task.spawn(function()
-			pcall(mouse1press)
-			local t0 = tick()
-			repeat
-				task.wait(0.02)
-			until not Workspace:FindFirstChild("GrabParts") or tick() - t0 > 1.6
-			task.wait(postGrabDelay)
-			canGrab = true
-			lastTarget = nil
 		end)
-	end
+	end)
+
+	local lastCheck = 0
+	pcall(function()
+		RunService.Heartbeat:Connect(function()
+			pcall(function()
+				if not on or not canGrab or not scriptEnabled then return end
+				if UserInputService:GetFocusedTextBox() then return end
+				if tick() - lastCheck < checkThrottle then return end
+				lastCheck = tick()
+
+				local t = getTarget()
+				if t then
+					lastTarget = t
+					lastHitTime = tick()
+				elseif lastTarget and tick() - lastHitTime > targetMemoryDuration then
+					lastTarget = nil
+				end
+
+				local c = LocalPlayer.Character
+				local root = lastTarget and lastTarget:FindFirstChild("HumanoidRootPart")
+				if not (lastTarget and c and c:FindFirstChild("HumanoidRootPart") and root) then return end
+				if (c.HumanoidRootPart.Position - root.Position).Magnitude > maxDistance then
+					lastTarget = nil
+					return
+				end
+
+				if lastTarget then
+					canGrab = false
+					task.spawn(function()
+						pcall(mouse1press)
+						local t0 = tick()
+						repeat
+							task.wait(0.02)
+						until not Workspace:FindFirstChild("GrabParts") or tick() - t0 > 1.6
+						task.wait(postGrabDelay)
+						canGrab = true
+						lastTarget = nil
+					end)
+				end
+			end)
+		end)
+	end)
 end)
 local UserInputService = game:GetService("UserInputService")
 local Players           = game:GetService("Players")
